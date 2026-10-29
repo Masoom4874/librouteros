@@ -87,6 +87,11 @@ class Test_SocketTransport:
         self.transport.sock.recv.assert_called_once()
         self.transport.sock.sendall.assert_not_called()
 
+    def test_close_after_abandon_is_noop(self):
+        self.transport.abandon()
+        self.transport.close()
+        self.transport.sock.close.assert_called_once_with()
+
     def test_sendall_timeout_abandons_socket(self):
         """After a sendall timeout the socket is closed and the transport refuses further use."""
         self.transport.sock.sendall.side_effect = socket.timeout("timed out")
@@ -130,6 +135,14 @@ class Test_AsyncSocketTransport:
         self.transport.writer.close.assert_called_once_with()
         self.transport.writer.wait_closed.assert_not_called()
         assert self.transport.abandoned is True
+
+    @pytest.mark.asyncio
+    async def test_close_after_abandon_does_not_wait(self):
+        """close() after abandon() must not await wait_closed: unsent bytes could block it."""
+        self.transport.abandon()
+        await self.transport.close()
+        self.transport.writer.close.assert_called_once_with()
+        self.transport.writer.wait_closed.assert_not_called()
 
     def test_abandon_swallows_close_errors(self):
         self.transport.writer.close.side_effect = OSError("already closing")

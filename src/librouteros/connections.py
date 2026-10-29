@@ -59,6 +59,8 @@ class SocketTransport:
             self.sock.close()
 
     def close(self) -> None:
+        if self.abandoned:
+            return
         self.sock.close()
 
 
@@ -108,5 +110,9 @@ class AsyncSocketTransport:
             self.writer.close()
 
     async def close(self) -> None:
+        if self.abandoned:
+            # Already closed by abandon(). Waiting for wait_closed() here could
+            # block until TCP gives up if the timed-out write left unsent bytes.
+            return
         self.writer.close()
         await self.writer.wait_closed()
