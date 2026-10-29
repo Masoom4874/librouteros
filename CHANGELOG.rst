@@ -1,3 +1,12 @@
+4.1.0-3 (rudrasecure fork)
+----------
+
+* Close the socket when a read, write or connect-login call times out.
+  RouterOS replies carry no tag, so a reply that arrives after the timeout
+  would otherwise be read as the answer to the next command on the same
+  connection. Any further use of a timed-out connection now raises
+  ``ConnectionClosed``; callers must open a new connection.
+
 4.1.1
 ----------
 

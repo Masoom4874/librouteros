@@ -73,6 +73,30 @@ class Test_SocketTransport:
         assert isinstance(error.value, OSError)
         assert isinstance(error.value.__cause__, socket.timeout)
 
+    def test_recv_timeout_abandons_socket(self):
+        """After a recv timeout the socket is closed and the transport refuses further use."""
+        self.transport.sock.recv.side_effect = socket.timeout("timed out")
+        with pytest.raises(RouterSyncTimeoutError):
+            self.transport.read(1)
+        self.transport.sock.close.assert_called_once_with()
+        assert self.transport.abandoned is True
+        with pytest.raises(ConnectionClosed, match="abandoned"):
+            self.transport.read(1)
+        with pytest.raises(ConnectionClosed, match="abandoned"):
+            self.transport.write(b"x")
+        self.transport.sock.recv.assert_called_once()
+        self.transport.sock.sendall.assert_not_called()
+
+    def test_sendall_timeout_abandons_socket(self):
+        """After a sendall timeout the socket is closed and the transport refuses further use."""
+        self.transport.sock.sendall.side_effect = socket.timeout("timed out")
+        with pytest.raises(RouterSyncTimeoutError):
+            self.transport.write(b"x")
+        self.transport.sock.close.assert_called_once_with()
+        assert self.transport.abandoned is True
+        with pytest.raises(ConnectionClosed, match="abandoned"):
+            self.transport.write(b"x")
+
     def test_sendall_timeout_raises_RouterSyncTimeoutError(self):
         """A socket sendall timeout is converted to RouterSyncTimeoutError (and chained)."""
         self.transport.sock.sendall.side_effect = socket.timeout
@@ -99,6 +123,32 @@ class Test_AsyncSocketTransport:
         await self.transport.write(b"some message")
         self.transport.writer.write.assert_called_once_with(b"some message")
         self.transport.writer.drain.assert_called_once_with()
+
+    def test_abandon_closes_writer_without_waiting(self):
+        """abandon() runs inside a timeout handler, so it must not await the peer."""
+        self.transport.abandon()
+        self.transport.writer.close.assert_called_once_with()
+        self.transport.writer.wait_closed.assert_not_called()
+        assert self.transport.abandoned is True
+
+    def test_abandon_swallows_close_errors(self):
+        self.transport.writer.close.side_effect = OSError("already closing")
+        self.transport.abandon()
+        assert self.transport.abandoned is True
+
+    @pytest.mark.asyncio
+    async def test_write_after_abandon_raises_ConnectionClosed(self):
+        self.transport.abandon()
+        with pytest.raises(ConnectionClosed, match="abandoned"):
+            await self.transport.write(b"some message")
+        self.transport.writer.write.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_read_after_abandon_raises_ConnectionClosed(self):
+        self.transport.abandon()
+        with pytest.raises(ConnectionClosed, match="abandoned"):
+            await self.transport.read(1)
+        self.transport.reader.read.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_read_raises_when_recv_returns_empty_byte_string(self):

@@ -219,6 +219,7 @@ class AsyncApiProtocol:
         try:
             await asyncio.wait_for(self.transport.write(encoded), self.timeout)
         except asyncio.TimeoutError as error:
+            self.transport.abandon()
             raise RouterAsyncTimeoutError from error
 
     async def readSentence(self) -> tuple[str, tuple[str, ...]]:  # noqa N802
@@ -237,6 +238,7 @@ class AsyncApiProtocol:
         try:
             sentence: tuple[str, ...] = await asyncio.wait_for(inner(), self.timeout)
         except asyncio.TimeoutError as error:
+            self.transport.abandon()
             raise RouterAsyncTimeoutError from error
         log("--->", *sentence)
         reply_word, words = sentence[0], sentence[1:]

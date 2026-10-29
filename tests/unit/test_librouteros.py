@@ -2,6 +2,7 @@
 import asyncio
 import socket
 from unittest.mock import (
+    AsyncMock,
     Mock,
     call,
     patch,
@@ -170,6 +171,27 @@ async def test_async_connect_raises_when_failed_login(transport_mock):
     failed = Mock(name="failed", side_effect=TrapError(message="failed to login"))
     with pytest.raises(TrapError):
         await async_connect(host="127.0.0.1", username="admin", password="", login_method=failed)
+
+
+@patch("librouteros.create_transport")
+def test_connect_abandons_transport_when_login_times_out(transport_mock):
+    timed_out = Mock(name="timed_out", side_effect=RouterSyncTimeoutError())
+    with pytest.raises(RouterSyncTimeoutError):
+        connect(host="127.0.0.1", username="admin", password="", login_method=timed_out)
+    transport_mock.return_value.abandon.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+@patch("librouteros.async_create_transport")
+async def test_async_connect_abandons_transport_when_login_times_out(transport_mock):
+    """Must not await close(): wait_closed can hang on the dead link that caused the timeout."""
+    transport_mock.return_value.close = AsyncMock()
+    transport_mock.return_value.abandon = Mock()
+    timed_out = Mock(name="timed_out", side_effect=RouterAsyncTimeoutError())
+    with pytest.raises(RouterAsyncTimeoutError):
+        await async_connect(host="127.0.0.1", username="admin", password="", login_method=timed_out)
+    transport_mock.return_value.abandon.assert_called_once_with()
+    transport_mock.return_value.close.assert_not_awaited()
 
 
 @pytest.mark.parametrize("exc", (socket.error,))

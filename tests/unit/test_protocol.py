@@ -196,3 +196,44 @@ class Test_ApiProtocol:
             await self.async_protocol.readSentence()
         assert isinstance(error.value, asyncio.TimeoutError)
         assert isinstance(error.value.__cause__, asyncio.TimeoutError)
+
+    @pytest.mark.asyncio
+    async def test_async_writeSentence_timeout_abandons_transport(self):
+        """A timed-out write drops the socket so a late reply cannot be read by the next call."""
+
+        async def hang(_data):
+            await asyncio.sleep(10)
+
+        self.async_protocol.timeout = 0.01
+        self.async_protocol.transport.write = AsyncMock(side_effect=hang)
+        with pytest.raises(RouterAsyncTimeoutError):
+            await self.async_protocol.writeSentence("/ip/address/print")
+        self.async_protocol.transport.abandon.assert_called_once_with()
+
+    @pytest.mark.asyncio
+    async def test_async_readSentence_timeout_abandons_transport(self):
+        """A timed-out read drops the socket so a late reply cannot be read by the next call."""
+
+        async def hang(_length):
+            await asyncio.sleep(10)
+
+        self.async_protocol.timeout = 0.01
+        self.async_protocol.transport.read = AsyncMock(side_effect=hang)
+        with pytest.raises(RouterAsyncTimeoutError):
+            await self.async_protocol.readSentence()
+        self.async_protocol.transport.abandon.assert_called_once_with()
+
+    @pytest.mark.asyncio
+    async def test_async_readSentence_success_does_not_abandon_transport(self):
+        stream = bytearray(b"\x03!re\x00")
+
+        async def read(length):
+            chunk = bytes(stream[:length])
+            del stream[:length]
+            return chunk
+
+        self.async_protocol.transport.read = AsyncMock(side_effect=read)
+        reply_word, words = await self.async_protocol.readSentence()
+        assert reply_word == "!re"
+        assert words == ()
+        self.async_protocol.transport.abandon.assert_not_called()

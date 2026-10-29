@@ -16,6 +16,7 @@ from librouteros.exceptions import (
     FatalError,
     RouterAsyncTimeoutError,
     RouterSyncTimeoutError,
+    RouterTimeoutError,
 )
 from librouteros.login import (
     async_plain,
@@ -104,6 +105,9 @@ def connect(
     try:
         login_method(api, username, password)
         return api
+    except RouterTimeoutError:
+        transport.abandon()
+        raise
     except (ConnectionClosed, FatalError):
         transport.close()
         raise
@@ -146,6 +150,11 @@ async def async_connect(
     try:
         await login_method(api, username, password)
         return api
+    except RouterTimeoutError:
+        # Not close(): waiting for the peer to acknowledge could hang on the
+        # same dead link that caused the timeout.
+        transport.abandon()
+        raise
     except (ConnectionClosed, FatalError):
         await transport.close()
         raise
